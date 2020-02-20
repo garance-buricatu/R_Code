@@ -1,0 +1,156 @@
+---
+title: "Assignment2"
+author: "Garance Buricatu"
+date: "October 12, 2019"
+output: pdf_document
+---
+# 1 (a). 
+*Using the plot of your choice, assess whether the total number of biopics released per year has increased over time based on the data collected from the IMDB movie database*
+```{r}
+library(fivethirtyeight)
+data(biopics)
+biopics
+
+library(dplyr)
+library(ggplot2)
+
+biopics_count_1<-biopics %>% group_by(year_release) %>% summarise(n=n())
+# the problem with this code is that you cannot see the years with zero biopics
+ggplot(biopics_count_1,aes(x=year_release,y=n)) + geom_line() + geom_point() + labs(x="Year of release",y="Number of Biopics")
+# here is a better plot
+ggplot(biopics_count_1,aes(x=year_release,y=n)) + geom_bar(stat="identity") + labs(x="Year of release",y="Number of Biopics")
+# to get the zero points included in a line plot, we need library(lubricate)
+biopics_mod <- biopics %>% mutate(Modified_year = factor(year_release,levels=as.character(min(year_release):max(year_release))))
+biopics_mod_count<-biopics_mod %>% count(Modified_year,.drop=FALSE) %>% mutate(Modified_year_num = as.numeric(as.character(Modified_year)))
+ggplot(biopics_mod_count,aes(x=Modified_year_num,y=n)) + geom_line() + geom_point() + labs(x="Year of release",y="Number of Biopics")
+```
+
+#1 (b). 
+*Produce a stacked barplot similar to the barplot in the original article showing the relative numbers of male and female subjects over time (Note the figures will not exactly be the same as the data in the article figures are not the same as in the dataset).*
+```{r}
+ggplot(biopics,aes(x=year_release,fill=subject_sex)) + geom_bar() + labs(x="Year of release",y="Count",title="With original factor levels", fill="Subject sex")
+
+#this also works
+ggplot(biopics %>% mutate(subject_sex=fct_rev(subject_sex)),aes(x=year_release,fill=subject_sex)) + geom_bar() + labs(x="Year of release",y="Count",title="With reversed factor levels", fill="Subject sex")
+```
+
+#1 (c). 
+*Produce a stacked barplot similar to the barplot in the original article showing the relative numbers of white subjects, subjects who are persons of color, and unknown race subjects over time. (Mote the figures will not exactly be the same as the data in the article figures are not the same as in the dataset).*
+## Part 1 - manage factor levels of subject_race
+```{r}
+# Option 1 - fct_lump
+biopics_mod <- biopics_mod %>% mutate(subject_race_lmp = fct_lump(subject_race)) 
+
+# Option 2 -  fct_other
+biopics_mod <- biopics_mod %>% mutate(subject_race_lmp2 = fct_other(subject_race,keep="White"))
+
+# Comparison of counts by each variable
+biopics_mod %>% select(subject_race_lmp,subject_race_lmp2) %>% table(.,exclude=c(""))
+
+#Stacked barplot for opttion 1
+ggplot(biopics_mod %>% mutate(subject_race_lmp = fct_explicit_na(subject_race_lmp,"Unknown")), aes(x=year_release, fill=subject_race_lmp)) + geom_bar() + scale_fill_manual(breaks = c("White", "Other","Unknown"), values=c("darkmagenta","darkgreen","darkgrey")) + labs(x="Year of release",y="Count",fill="Race")
+
+#Stack barplot for option 2
+ggplot(biopics_mod %>% mutate(person_of_color = fct_explicit_na(factor(person_of_color),"Unknown")), aes(x=year_release, fill=subject_race_lmp2)) + geom_bar() + scale_fill_manual(breaks = c(TRUE,FALSE,"Unknown"), values=c("darkmagenta","darkgreen","darkgrey")) + labs(x="Year of release",y="Count",fill="Race")
+```
+
+#1 (d).
+*Based on a mosaic plot (collapsing over year of release), which sex / white-nonwhite-NA group is the most underrepresented in biopics based on number of subjets?*
+```{r}
+library(ggmosaic)
+# mosaic plot can be plotted with:
+ggplot(biopics_mod) + geom_mosaic(aes(x=product(subject_sex,subject_race_lmp),fill=subject_race_lmp))
+
+ggplot(biopics_mod) + geom_mosaic(aes(x=product(subject_race_lmp, subject_sex),fill=subject_race_lmp))
+
+#If you used the other variable, the same relationship holds
+ggplot(biopics_mod) + geom_mosaic(aes(x=product(subject_sex,person_of_color),fill=person_of_color)) + labs(y="Person of Color",x="Sex", fill="Person of Color")
+
+ggplot(biopics_mod) + geom_mosaic(aes(x=product(person_of_color,subject_sex),fill=subject_sex)) + labs(x="Person of Color",y="Sex", fill="Sex")
+```
+*Now we make a tree map*
+```{r}
+library(treemapify)
+ggplot(biopics_mod %>% mutate(subject_race_lmp = fct_explicit_na(subject_race_lmp)) %>% group_by(subject_race_lmp, subject_sex) %>% count(), aes(area = n, fill = interaction(subject_race_lmp,subject_sex))) + geom_treemap() + scale_fill_viridis_d() + labs(fill="Subject Race/Sex")
+
+ggplot(biopics_mod %>% mutate(subject_race_lmp = fct_explicit_na(factor(person_of_color))) %>% group_by(person_of_color, subject_sex) %>% count(), aes(area = n, fill = interaction(person_of_color,subject_sex))) + geom_treemap() + scale_fill_viridis_d() + labs(fill="Person of Color/Sex")
+```
+
+#1 (e).
+*Produce a summary table containing counts and proportions of biopic subjects per year for each sex/white-nonwehite-NA factor combination.*
+```{r}
+summary_table <- biopics_mod %>% mutate(subject_race_lmp = fct_explicit_na(subject_race_lmp)) %>% group_by(year_release, subject_sex, subject_race_lmp) %>% count() %>% group_by(year_release) %>% mutate(prop = n/sum(n))
+summary_table%>% slice(sample(1:nrow(.), 15))
+
+# to attack the zeros
+summary_table_zero <- biopics_mod %>% mutate(race_sex = interaction(subject_sex,fct_explicit_na(subject_race_lmp))) %>% group_by(Modified_year,race_sex) %>% count(Modified_year,race_sex,.drop=FALSE) %>% ungroup() %>% group_by(Modified_year) %>% mutate(prop=n/sum(n))
+summary_table_zero %>% slice(sample(1:nrow(.), 15))
+```
+
+#1 (f).
+*Create (i) a line plot showing the counts of these groups over time and (ii) a line plot showing the
+relative proportions of subjects over time. Would you infer from these plots that the imbalance is
+improving over time or not? Explain your answer.*
+```{r}
+#plots of total counts for counrs with and without zeros
+ggplot(summary_table_zero,aes(x=as.numeric(as.character(Modified_year)), y=n, group=race_sex, col=race_sex)) + geom_line() + facet_wrap(~race_sex) + labs(x="Year",col="Sex.Race")
+#or
+ggplot(summary_table,aes(x=year_release, y=n, group=interaction(subject_sex, subject_race_lmp), col=interaction(subject_sex,subject_race_lmp))) +
+geom_line() + facet_wrap(~interaction(subject_sex,subject_race_lmp)) + labs(x="Year",col="Sex.Race")
+# or
+ggplot(summary_table_zero,aes(x=as.numeric(as.character(Modified_year)), y=prop, group=race_sex, col=race_sex)) + geom_line() + facet_wrap(~race_sex) +
+labs(x="Year",col="Sex.Race",title="With zeroes")
+
+#WITH ZEROS
+ggplot(summary_table,aes(x=year_release, y=prop, group=interaction(subject_sex, subject_race_lmp), col=interaction(subject_sex,subject_race_lmp))) +
+geom_line() + facet_wrap(~interaction(subject_sex,subject_race_lmp)) + labs(x="Year",col="Sex.Race",title="Without zeroes")
+```
+
+#2
+```{r}
+install.packages("heplots")
+library(heplots)
+data(Diabetes)
+?Diabetes
+```
+
+##2 (a).
+*First, create a summary table that finds the mean and median for each of the five quantitive variables with a column for each group. (Hint: use summarise, pivot_longer, and pivot_wider). Which varible(s) seem to differentiate amongst the different types of diabetes?*
+```{r}
+Diabetes %>% group_by(group) %>% summarise_at(vars(relwt:sspg),list(mean=mean, median=median)) %>% pivot_longer(cols=c(ends_with("mean"),ends_with("median")), names_to="Var_Statistic") %>% pivot_wider(id_cols="Var_Statistic",names_from="group")
+
+# Summary table of the 2 measures of spead (IQR and standard deviation)
+Diabetes %>% group_by(group) %>% summarise_at(vars(relwt:sspg),list(sd=sd, iqr=IQR)) %>% pivot_longer(cols=c(ends_with("sd"),ends_with("IQR")), names_to="Var_Statistic") %>% pivot_wider(id_cols="Var_Statistic",names_from="group")
+
+#boxplot
+ggplot(Diabetes %>% pivot_longer(cols=c(-6), names_to="Measure"), aes(x=group,fill=group,y=value)) + geom_boxplot() + facet_wrap(~Measure,scales="free_y") + labs(x="") + theme(axis.text.x = element_blank())
+```
+
+##2 (b).
+*Create 3 scatterplots, comparing all possible pairs of the glucose test variable, the insulin test varible and the sspg variable. Which pair of variables seems to allow for the strongest distinction amongst the three groups?*
+```{r}
+library(gridExtra)
+p1 <- ggplot(Diabetes,aes(x=glutest,y=instest,col=group)) + geom_point() + theme(legend.position = "none")
+
+p2 <- ggplot(Diabetes,aes(x=glutest,y=sspg,col=group)) + geom_point() + theme(legend.position = "none")
+
+p3 <- ggplot(Diabetes,aes(x=instest,y=sspg,col=group)) + geom_point() +theme(legend.position = "none")
+grid.arrange(p1,p2,p3,layout_matrix=matrix(c(1,2,3,NA),ncol=2))
+```
+
+##2 (c).
+*Using the pair of variables that you chose in part (b), make 2-d histograms and contour plots for each group separately.*
+```{r}
+# 2D Conour Plots
+ggplot(Diabetes, aes(x=glutest,y=sspg)) + geom_density_2d() + geom_point(alpha=0.5,aes(col=group)) + facet_grid(group~.) + ggtitle("2D contour plots")+ theme(legend.position = "none")
+
+#2D Histogram
+ggplot(Diabetes, aes(x=glutest,y=sspg)) + geom_bin2d(bins=16) + facet_grid(group~.)+ ggtitle("2D histogram")
+
+#2D Hex Plot
+ggplot(Diabetes, aes(x=glutest,y=sspg)) + geom_hex(bins=16) + facet_grid(group~.)+ ggtitle("2D hex plot")
+
+#2D Conour Plot, all groups
+ggplot(Diabetes, aes(x=glutest,y=sspg)) + geom_density_2d(aes(col=group)) + geom_point(alpha=0.5,aes(col=group)) + ggtitle("2D contour, all groups")+ theme(legend.position = "none")
+```
+
